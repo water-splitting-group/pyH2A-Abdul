@@ -268,4 +268,4 @@ Photovoltaic > Nominal Power (kW) > Value | PV Size | value | 1 | 3
 
 Name | Method Name | Arguments
 --- | --- | ---
-Run Optimization | run_optimization | {"maxiter": 50, "popsize": 30, "seed": 42, "workers": -1, "verbose": true}
+Run Optimization | run_optimization | {"maxiter": 50, "popsize": 30, "seed": 42, "workers": -1, "verbose": True}

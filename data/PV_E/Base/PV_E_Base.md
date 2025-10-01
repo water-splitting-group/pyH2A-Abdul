@@ -263,10 +263,9 @@ image_kwargs | {'x': -0.38}
 Parameter | Name | Type | Lower | Upper
 --- | --- | --- | --- | ---
 Photovoltaic > Nominal Power (kW) > Value | PV Size | value | 1 | 3
-Electrolyzer > Nominal Power (kW) > Value | PV Size | value | 1000 | 20000
 
 ## Optimization_Analysis_Methods
 
 Name | Method Name | Arguments
 --- | --- | ---
-Run Optimization | run_optimization | {"maxiter":50, "popsize":30}
+Run Optimization | run_optimization | {"maxiter": 50, "popsize": 30, "seed": 42, "workers": -1, "verbose": True}

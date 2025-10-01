@@ -114,8 +114,8 @@ class Optimization_Analysis:
 
         return cost
 
-    def run_optimization(self, maxiter=100, popsize=15, seed=None,
-                         verbose=True, workers=-1):
+    def run_optimization(self, maxiter, popsize, seed,
+                         verbose, workers):
         """
         Run differential evolution optimization.
 
