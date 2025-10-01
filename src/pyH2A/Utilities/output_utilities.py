@@ -206,7 +206,8 @@ class MathTextSciFormatter(mticker.Formatter):
 
 	def __init__(self, fmt="%1.1e"):
 	    self.fmt = fmt
-	def __call__(self, x, pos=None):
+
+def __call__(self, x, pos=None):
 		s = self.fmt % x
 		decimal_point = '.'
 		positive_sign = '+'
