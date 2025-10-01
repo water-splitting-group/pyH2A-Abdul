@@ -263,6 +263,7 @@ image_kwargs | {'x': -0.38}
 Parameter | Name | Type | Lower | Upper
 --- | --- | --- | --- | ---
 Photovoltaic > Nominal Power (kW) > Value | PV Size | value | 1 | 3
+Electrolyzer > Nominal Power (kW) > Value | PV Size | value | 1000 | 20000
 
 ## Optimization_Analysis_Methods
 

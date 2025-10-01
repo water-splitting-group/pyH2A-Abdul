@@ -1,127 +1,173 @@
 import numpy as np
 from scipy.optimize import differential_evolution
-from pyH2A.Utilities.input_modification import convert_input_to_dictionary, parse_parameter, set_by_path
+from pyH2A.Utilities.input_modification import (
+    convert_input_to_dictionary,
+    parse_parameter,
+    set_by_path
+)
 from pyH2A.Discounted_Cash_Flow import Discounted_Cash_Flow
 import copy
 
+
 class Optimization_Analysis:
-    '''
+    """
     General-purpose optimization module for PyH2A.
 
-    This class allows optimizing any parameter defined in the input file
-    under specified bounds using a global optimization algorithm (differential evolution). 
-    The objective is to minimize the Levelized Cost of Hydrogen (LCOH) 
-    calculated through the Discounted Cash Flow (DCF) analysis.
+    Optimizes parameters defined in the input file using differential evolution
+    to minimize the Levelized Cost of Hydrogen (LCOH).
+    """
 
-    Attributes
-    ----------
-    inp_dict : dict
-        Fully processed input dictionary extracted from the input file.
-    base_case : Discounted_Cash_Flow
-        Baseline DCF calculation used for reference.
-    param_paths : list of list
-        Paths to parameters in the input dictionary that will be optimized.
-    param_types : list of str
-        Type of each parameter ('value' or 'factor').
-    bounds : list of tuple
-        Lower and upper bounds for each parameter.
-    optimal_values : np.ndarray
-        Array storing the optimized parameter values after running optimization.
-    optimal_h2_cost : float
-        LCOH corresponding to the optimized parameters.
-    '''
-
-    def __init__(self, input_file):
-        '''
-        Initialize Optimization_Analysis object.
+    def __init__(self, input_file, cache_tolerance=6):
+        """
+        Initialize OptimizationAnalysis.
 
         Parameters
         ----------
         input_file : str
-            Path to the pyH2A input file containing the plant model and Optimization_Analysis table.
-        '''
-        # Convert input file to a full dictionary for manipulation
+            Path to the pyH2A input file containing plant model and Optimization_Analysis table.
+        cache_tolerance : int, optional
+            Decimal rounding for caching parameter sets (default: 6).
+        """
+        # Convert input file to dictionary
         self.inp_dict = convert_input_to_dictionary(input_file)
+
+        # Validate optimization section
+        if 'Optimization_Analysis' not in self.inp_dict:
+            raise ValueError("Input file missing 'Optimization_Analysis' section.")
+
         # Generate base case DCF for reference
         self.base_case = Discounted_Cash_Flow(input_file, print_info=False)
 
-        # Lists to store optimization parameter information
-        self.param_paths = []   # e.g., ['Photovoltaic', 'Nominal Power (kW)', 'Value']
-        self.param_types = []   # 'value' or 'factor'
-        self.bounds = []        # tuples (lower, upper)
+        # Extract parameters
+        self.param_key_paths = []
+        self.param_types = []
+        self.bounds = []
 
-        # Extract parameters from the 'Optimization_Analysis' section of the input
         for key, param_info in self.inp_dict['Optimization_Analysis'].items():
-            self.param_paths.append(parse_parameter(key))
+            self.param_key_paths.append(parse_parameter(key))
             self.param_types.append(param_info['Type'])
-            self.bounds.append((param_info['Lower'], param_info['Upper']))
+            lower, upper = param_info['Lower'], param_info['Upper']
+            if lower >= upper:
+                raise ValueError(f"Invalid bounds for parameter '{key}': lower >= upper")
+            self.bounds.append((lower, upper))
 
-    def objective_function(self, x):
-        '''
-        Objective function to be minimized by the optimizer.
+        # Results
+        self.optimal_values = None
+        self.optimal_h2_cost = None
+
+        # Cache
+        self._cache = {}
+        self._cache_tolerance = cache_tolerance
+
+    def _make_cache_key(self, x):
+        """Create a rounded tuple key for caching."""
+        return tuple(np.round(x, self._cache_tolerance))
+
+    def objective_function(self, x, verbose=False):
+        """
+        Objective function to minimize.
 
         Parameters
         ----------
         x : np.ndarray
-            Array of trial parameter values suggested by the optimizer.
+            Trial parameter values.
+        verbose : bool
+            If True, prints trial results.
 
         Returns
         -------
         float
-            LCOH corresponding to the current set of parameter values.
-        '''
-        # Create a deep copy of the input dictionary to avoid modifying the base case
+            LCOH for current parameter set.
+        """
+        # Check cache
+        key = self._make_cache_key(x)
+        if key in self._cache:
+            return self._cache[key]
+
+        # Copy base input
         input_copy = copy.deepcopy(self.inp_dict)
 
-        # Update parameters in the copied input dictionary
+        # Apply parameter updates
         for i, value in enumerate(x):
-            set_by_path(input_copy, self.param_paths[i], value, value_type=self.param_types[i])
+            set_by_path(input_copy, self.param_key_paths[i], value,
+                        value_type=self.param_types[i])
 
-        # Run DCF analysis with the updated parameters
-        dcf = Discounted_Cash_Flow(input_copy, print_info=False)
+        # Run DCF and catch failures
+        try:
+            dcf = Discounted_Cash_Flow(input_copy, print_info=False)
+            cost = dcf.h2_cost
+        except Exception as e:
+            # Penalize invalid solutions
+            cost = float("inf")
+            if verbose:
+                print(f"DCF failed with error: {e}")
 
-        # Return hydrogen cost as the objective to minimize
-        return dcf.h2_cost
+        # Store in cache
+        self._cache[key] = cost
 
-    def run_optimization(self, maxiter, popsize, seed=None):
-        '''
-        Execute the differential evolution optimization.
+        # Optional verbose logging
+        if verbose:
+            param_names = [" > ".join(p) for p in self.param_key_paths]
+            trial_info = ", ".join(f"{name}: {val:.4f}"
+                                   for name, val in zip(param_names, x))
+            print(f"Trial params: {trial_info} => LCOH: {cost:.4f}")
+
+        return cost
+
+    def run_optimization(self, maxiter=100, popsize=15, seed=None,
+                         verbose=True, workers=-1):
+        """
+        Run differential evolution optimization.
 
         Parameters
         ----------
         maxiter : int
-            Maximum number of generations for the differential evolution algorithm.
+            Maximum number of generations (default: 100).
         popsize : int
-            Population size per generation.
-        seed : int or None, optional
-            Random seed for reproducibility.
+            Population size per generation (default: 15).
+        seed : int or None
+            Random seed for reproducibility (default: None).
+        verbose : bool
+            If True, prints optimization progress and results.
+        workers : int
+            Number of parallel workers (default: -1 = use all cores).
 
         Returns
         -------
-        result : OptimizeResult
-            Output object from SciPy differential_evolution containing optimization results.
-        '''
-        print("Starting differential evolution optimization...")
+        dict
+            Results dictionary containing:
+            - optimal_values : np.ndarray
+            - optimal_h2_cost : float
+            - scipy_result : OptimizeResult
+        """
+        if verbose:
+            print("Starting differential evolution optimization...")
 
-        # Run SciPy's differential evolution algorithm
+        # Run SciPy optimizer with parallel execution
         result = differential_evolution(
             self.objective_function,
             self.bounds,
             maxiter=maxiter,
             popsize=popsize,
             seed=seed,
-            polish=True,   # final local optimization after convergence
+            polish=True,
+            workers=workers,
+            updating="deferred"
         )
 
-        # Store optimized results
+        # Store results
         self.optimal_values = result.x
         self.optimal_h2_cost = result.fun
 
-        # Print summary of results
-        print("\nOptimization complete!")
-        print("Optimal H2 cost: {:.4f} $/kg".format(self.optimal_h2_cost))
-        for i, val in enumerate(self.optimal_values):
-            param_name = " > ".join(self.param_paths[i])
-            print(f"Parameter '{param_name}' optimized to: {val}")
+        if verbose:
+            print("\nOptimization complete!")
+            print(f"Optimal H2 cost: {self.optimal_h2_cost:.4f} $/kg")
+            for i, val in enumerate(self.optimal_values):
+                param_name = " > ".join(self.param_key_paths[i])
+                print(f"Parameter '{param_name}' optimized to: {val:.4f}")
 
-        return result
+        return {
+            "optimal_values": self.optimal_values,
+            "optimal_h2_cost": self.optimal_h2_cost,
+            "scipy_result": result
+        }
