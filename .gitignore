@@ -85,3 +85,6 @@ celerybeat-schedule
 *.fchk
 *.cube
 
+# Virtual environment
+venv/
+
